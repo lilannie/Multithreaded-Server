@@ -220,9 +220,12 @@ void check(Request_t *request, char **arguments) {
 	funlockfile(out);
 }
 
-void transaction(char **arguments, int num) {
+void transaction(Request_t *request, char **arguments, int num) {
 	// Counter
 	int i = 0;
+
+	// Variables
+	struct timeval timestamp;
 
 	Transaction_t trans = malloc(sizeof(Transaction_t));
 	for (i = 0; i < num; i++) {
@@ -234,8 +237,52 @@ void transaction(char **arguments, int num) {
 		pthread_mutex_unlock(&input_mutex);
 	}
 
+	// Lock All
+	for(i = 0; i < num_trans; i++) {
+		pthread_mutex_lock(&(accounts[trans.accounts[i]-1].lock));
+	}
+
+	// No Insufficient Funds
+	if (!isf(request, &trans, num)) {
+		for(i = 0; i < num; i++){
+			write_account(trans.accounts[i], (trans.amounts[i] + trans.balances[i]));
+		}
+		
+		gettimeofday(&timestamp, NULL);
+		flockfile(out);
+		fprintf(out, "%d OK TIME %d.%06d %d.%06d\n", 
+			request->id, request->time.tv_sec, request->time.tv_usec, 
+			timestamp.tv_sec, timestamp.tv_usec);
+		funlockfile(out);
+	}
+
+	// Unlock All
+	for(i = num - 1; i >=0; i--){
+		pthread_mutex_unlock(&(accounts[trans.accounts[i]-1].lock));
+	}
 
 	free(trans);
+}
+
+int isf(Request_t *request, Transaction_t *trans, int num) {
+	// Variables
+	struct timeval timestamp;
+
+	for(i = 0; i < num; i++) {
+		trans.balances[i] = read_account(trans->accounts[i]);
+		if (trans->accounts[i] + trans->balances[i] < 0) {
+			gettimeofday(&timestamp, NULL);
+
+			flockfile(out);
+			fprintf(out, "%d ISF %d TIME %d.06%d %d.06%d\n", 
+				request->id, trans->accounts[i], 
+				request->time.tv_sec, request->time.tv_usec, 
+				timestamp.tv_sec, timestamp.tv_usec);
+			funlockfile(out);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /*************************
