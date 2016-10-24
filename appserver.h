@@ -5,19 +5,44 @@ typedef int bool;
 #define true 1
 #define false 0
 
-#include <stdio.h>
+#ifndef STANDARD_LIBS
+#define STANDARD_LIBS
 #include <stdlib.h>
+#include <stdio.h>
+#include <sys/time.h>
 #include <string.h>
-
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-
-#include <ctype.h>
-#include <limits.h>
 #include <pthread.h>
+#endif
 
-// Global Variables
-int requestNum = 1;
+#ifndef BANK_HEADER
+#define BANK_HEADER
+#include "Bank.h"
+#endif
+
+#define maxTransactions 10
+
+typedef struct Request {
+	int id;
+	char *input;
+	struct timeval time;
+	struct Request *next;
+} Request_t;
+
+typedef struct List {
+	int size;
+	Request *head;
+	Request *tail;
+} List_t;
+
+typedef struct Account {
+	pthread_mutex_t lock;
+	int value;
+} Account_t;
+
+typedef struct Transaction {
+	int accounts[maxTransactions];
+	int amounts[maxTransactions];
+	int balances[maxTransactions];
+} Transaction_t;
 
 #endif

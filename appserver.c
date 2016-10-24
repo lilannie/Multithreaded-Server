@@ -1,5 +1,3 @@
-#include "appserver.h"
-
 /********************
 ***	Annie Steenson	*
 ***	CPRE 308		*
@@ -7,155 +5,327 @@
 *************************
 ***	Run in Terminal:	*
 ***		make all		*
-***	./appserver         *
+***		./appserver     *
 *************************/
 
-// Note: This function returns a pointer to a substring of the original string.
-// If the given string was allocated dynamically, the caller must not overwrite
-// that pointer with the returned value, since the original pointer must be
-// deallocated using the same allocator with which it was allocated.  The return
-// value must NOT be deallocated using free() etc.
-char *trimwhitespace(char *str)
-{
-  char *end;
+#include "appserver.h"
 
-  // Trim leading space
-  while(isspace((unsigned char)*str)) str++;
+/**********************
+*** Global Variables **
+***********************/
 
-  if(*str == 0)  // All spaces?
-    return str;
+/** Command Line Variables ****/
 
-  // Trim trailing space
-  end = str + strlen(str) - 1;
-  while(end > str && isspace((unsigned char)*end)) end--;
+#define numArgs 4
+#define maxArgs 21	
+int numWorkers = 0;
+int numAccounts = 0;
+FILE * out;	
 
-  // Write new null terminator
-  *(end+1) = 0;
+/** Server Variables **********/
 
-  return str;
+size_t sizeInput = 150; 
+int requestIdCounter = 1;
+int workersRunning = 1;
+List_t *queue;
+Account_t *accounts;
+
+/** Threads *******************/
+pthread_t workers[numWorkers];
+
+/** Mutexes *******************/
+
+pthread_mutex_t bank_mutex;
+pthread_mutex_t queue_mutex;
+pthread_mutex_t input_mutex;
+
+/**********************
+**** List Functions ***
+***********************/
+
+void init_list() {
+	pthread_mutex_init(&queue_mutex, NULL);
+	queue = malloc(sizeof(List_t));
+	queue->size = 0;
+	queue->head = NULL;
+	queue->tail = NULL;
+
 }
 
-// Queue a Transaction
-void queue_transaction(char *args[], int size) {
-	
-	if ((size-1) % 2 == 0) {
-		request(args, size, requestNum, 0);
+void add_list(int id, char *input) {
+	Request_t new = malloc(sizeof(Request_t));
+	new->id = id;
+	new->input = malloc(sizeof(char) * sizeInput * 2);
+	gettimeofday(&(new->time), NULL);
+	new->next = NULL;
+
+	/** Insert in List *************/
+
+	pthread_mutex_lock(&queue_mutex);
+	if (queue->size <= 0) {
+		queue->head = new;
+		queue->tail = new;
+
+		queue->size = 1;
 	} else {
-		printf("Missing arguments: TRANS <account_id> <amount>\n");
+		queue->tail->next = new;
+		queue->tail = new;
+		queue->size++;
+	}
+	pthread_mutex_unlock(&queue_mutex);
+}
+
+Request_t pop_list() {
+	Request_t popped;
+	Request_t *head;
+
+	pthread_mutex_lock(&queue_lock);
+
+	// Return if List is empty
+	if (queue->size <= 0){
+		pthread_mutex_unlock(&queue_lock);
+		popped = NULL;
+		return popped;
+	}
+
+	// Get Popped Request
+	head = queue->head;
+	popped.id = head->id;
+	popped.input = malloc(sizeof(char) * 2 * maxArgs);
+	strcopy(ret.input, head->input);
+	popped.time = head->time;
+	popped.next = NULL;
+
+	// List Logic and Free Memory
+	queue->head = head->next;
+	free(head->input);
+	free(head);
+
+	// List is empty now
+	if (queue->head == NULL)
+		queue->tail = NULL;
+
+	queue->size--;
+
+	pthread_mutex_unlock(&queue_lock);
+
+	return popped;
+}
+
+/*************************
+**** Account Functions ***
+**************************/
+
+void init_accounts() {
+	// Counter 
+	int i = 0;
+
+	// Initialize Accounts in Bank.c
+	initialize_accounts(numAccounts);
+
+	// Initialize Accounts in Appserver.c
+	accounts = malloc(sizeof(Account_t) * numAccounts);
+	for (i = 0; i < numAccounts; i++) {
+		pthread_mutex_init(&(accounts[i].lock), NULL);
+		accounts[i].value = 0;
 	}
 }
 
-// Queue a Balance Check
-void queue_check(char *args[], int size) {
-	// printf("%s\n", args[1]);
-	if (size == 2) {
-		request(args, size, requestNum, 1);
-	} else {
-		printf("Missing arguments: CHECK <account_id>\n");
+/*************************
+**** Worker Functions ****
+**************************/
+void init_workers() {
+	// Counter
+	int i = 0;
+
+	for (i = 0; i < numWorkers; i++) {
+		pthread_create(&workers[i], NULL, listen, NULL);
 	}
 }
 
-// End application
-void end() {
-	exit(0);
+void listen() {
+	// Variables
+	Request_t request;
+	char **arguments = malloc(sizeof(char*) * maxArgs);
+	int numArgs = 0;
+
+	while (queue->size > 0 || workersRunning) {
+		while (workersRunning && queue->size == 0){
+			usleep(2);
+		} 
+
+		request = pop_list();
+
+		// Empty List
+		if (!request) 
+			continue;
+
+		parse_request_input(request.input, arguments, &numArgs);
+		execute_request(&request, arguments, numArgs);
+
+		for (i = 0; i < numArgs; i++) {
+			free(arguments[i]);
+		}
+		free(request.input);
+		numArgs = 0;
+	}
+
+	free(arguments);
 }
 
-// Determine action based on Command from Input
-void readCommand(char *args[], int size){
-	char *command = args[0];
+void parse_request_input(char *input, char **arguments, int *numArgs) {
+	// Variables
+	char *arg;
 
-	/************************
-	*** Built in Commands ***
-	*************************/
-
-	if (strcmp(command, "END") == 0) 
-		end();
-	else if (strcmp(command, "CHECK") == 0) {
-		queue_check(args, size);
-	}
-	else if (strcmp(command, "TRANS") == 0) {
-		queue_transaction(args, size);
-	}
-	// Cannot read command
-	else printf("Do not recognize command.\n");
-} 
-
-// Parse through arguments
-void parseArguments(char input[]) {
-	// printf("%s\n", input);
-	// Counters
-	int i = 0; 
-
-	// Contants 
-	const char space[2] = " ";
-
-	// Variable
-	char *args[21];
-
-	// Parse through all the arguments 
-	char *arg = strtok(input, space);
-	while(arg != NULL && arg[0] != '\n') {
+	pthread_mutex_lock(&input_mutex);
+	// Critical Region
+	arg = strtok(input, " ");
+	while (arg) {
+		arguments[i] = malloc(sizeof(char) * maxArgs);
+		strcopy(arguments[i], arg, maxArgs);
 		
-		int length = strlen(arg);
-
-		// printf("Before Length: %d \n", length);
-		// printf("Before String: %s \n", arg);
-
-		// Replace \n with 0 at end of each argument
-		if (length > 0)
-			*(arg + length) = 0;
-
-		// printf("After Length: %d \n", length);
-		// printf("After String: %s \n", arg);
-
-		// printf("ARG: %s\n", arg);
-		args[i] = malloc(sizeof(arg));
-		strcpy(args[i], arg);
-		// printf("ARGS[i]: %s\n", args[i]); 
-
-		arg = strtok(NULL, space);
-		i++;
+		arg = strtok(NULL, " ");
+		numArgs++;
 	}
-
-	readCommand(args, i);	
+	pthread_mutex_unlock(&input_mutex);
 }
 
+void execute_request(Request_t *request, char **arguments, int *numArgs) {
+	if (num_tokens < 2) {
+		printf("&d Error: Request Format\n", request->id);
+	}
+	else if (num_tokens == 2 && strcmp(arguments[0], "CHECK") == 0) {
+		check(request, arguments);
+	} 
+	else if (num_tokens % 2 && strcmp(arguments[0], "TRANS") == 0) {
+		transaction();
+	}
+}
 
+void check(Request_t *request, char **arguments) {
+	pthread_mutex_lock(&input_mutex);
+	int account = atoi(arguments[1]);
+	pthread_mutex_unlock(&input_mutex);
+
+	pthread_mutex_lock(&(accounts[account-1].lock));
+	int amount = read_account(account);
+	pthread_mutex_unlock(&(accounts[account-1].lock));
+
+	struct timeval timestamp;
+	gettimeofday(&timestamp, NULL);
+
+	flockfile(out);
+	fprintf(out, "%d BAL %d TIME %d.%06d %d.%06d\n", 
+		request->id, amount, request->time.tv_sec, request->time.tv_usec, timestamp.tv_sec, timestamp.tv_usec);
+	funlockfile(out);
+}
+
+void transaction(char **arguments, int num) {
+	// Counter
+	int i = 0;
+
+	Transaction_t trans = malloc(sizeof(Transaction_t));
+	for (i = 0; i < num; i++) {
+		int position = i*2;
+
+		pthread_mutex_lock(&input_mutex);
+		trans.accounts[i] = atoi(args[position+1]);
+		trans.amounts[i] = atoi(args[position+2]);
+		pthread_mutex_unlock(&input_mutex);
+	}
+
+
+	free(trans);
+}
+
+/*************************
+**** Request Functions ***
+**************************/
+
+void run() {
+	// Counter
+	int i;
+
+	char *input = malloc(sizeof(char) * sizeInput * 2);
+
+	while(1) {
+		// Get Input
+		int sizeInputRead = getline(&input, &sizeInput, stdin);
+		input[sizeInputRead -1] = '\0';
+	
+		if(strcmp(input, "END") == 0) {
+			break;
+		}
+
+		printf("ID %d\n", requestIdCounter);
+		add_list(requestIdCounter, input);
+		requestIdCounter++;
+	}
+
+	finish();
+	free(input);
+	cleanup();
+}
+
+void finish() {
+	while(queue->size > 0) 
+		usleep(2);
+
+	for (i = 0; i < numWorkers; i++) {
+		pthread_join(workers[i], NULL);
+	}
+}
+
+void cleanup() {
+	free(accounts);
+	free(queue);
+	fclose(out);
+	// Free accounts from Bank.c
+	free_accounts();
+}
+
+/********************
+ ** Main Function ***
+ ********************
+ **
+ ** argv[1] = number of workers
+ ** argv[2] = number of accounts
+ ** argv[3] = output file
+ */
 int main(int argc, char **argv) {
 	// Input Variables
-	int numWorkers = 0;
-	int numAccounts = 0;
 	char input[150];
-	char output[50];
 
 	// Setup Application
-	if (argc == 4) {
-		numWorkers = atoi(argv[1]);
-		numAccounts = atoi(argv[2]);
-		strcpy(output, argv[3]);
-
-		// printf("Num workers: %d\n", numWorkers);
-		// printf("Num accounts: %d\n", numAccounts);
-		// printf("Output file: %s\n", output);
-	}
-	else {
+	if (argc != numArgs) {
 		printf("Wrong arguments passed into the program.\n");
+		printf("Exiting program.\n");		
 		exit(255);
 	}
 
-	// Initialize server and client
-	init_server(numAccounts);
-	init_client(numWorkers);
-	run_client();
+	numWorkers = atoi(argv[1]);
+	numAccounts = atoi(argv[2]);
+	out = fopen(argv[3], "w");
 
-	// Take requests
-	printf("Welcome to AppServer.\n");
-	while(1) {
-		fgets(input, 150, stdin);
-		parseArguments(trimwhitespace(input));
-		printf("ID %d\n", requestNum);
-		requestNum++;
+	if (!out) {
+		printf("Error opening output file. \n");
+		printf("Exiting program.\n");
+		exit(255);
 	}
+
+	// printf("Num workers: %d\n", numWorkers);
+	// printf("Num accounts: %d\n", numAccounts);
+	// printf("Output file: %s\n", output);
+
+
+	init_accounts();
+	init_list();
+	init_workers();
+
+	pthread_mutex_init(&input_mutex, NULL);
+	pthread_mutex_init(&bank_mutex, NULL);
+
+	run();
 	return 0;
 }
 
