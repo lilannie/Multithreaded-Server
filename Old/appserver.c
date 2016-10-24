@@ -15,29 +15,37 @@
 // that pointer with the returned value, since the original pointer must be
 // deallocated using the same allocator with which it was allocated.  The return
 // value must NOT be deallocated using free() etc.
-char *trimwhitespace(char *str)
+char *trimwhitespace(char *text)
 {
-  char *end;
 
-  // Trim leading space
-  while(isspace((unsigned char)*str)) str++;
+	char *blank = malloc(sizeof(text));
+   	int c = 0, d = 0;
+ 
+   	while (text[c] != '\0') {
+      	if (text[c] == ' ') {
+         	int temp = c + 1;
+         	if (text[temp] != '\0') {
+            	while (text[temp] == ' ' && text[temp] != '\0') {
+               		if (text[temp] == ' ') {
+                  		c++;
+               		}  
+               		temp++;
+            	}
+         	}
+      	}
+      	blank[d] = text[c];
+      	c++;
+      	d++;
+   	}
+ 
+   	blank[d-1] = '\0';
 
-  if(*str == 0)  // All spaces?
-    return str;
-
-  // Trim trailing space
-  end = str + strlen(str) - 1;
-  while(end > str && isspace((unsigned char)*end)) end--;
-
-  // Write new null terminator
-  *(end+1) = 0;
-
-  return str;
+   	// printf("%s\n", blank);
+ 	return blank;
 }
 
 // Queue a Transaction
-void queue_transaction(char *args[], int size) {
-	
+void queue_transaction(char *args, int size) {
 	if ((size-1) % 2 == 0) {
 		request(args, size, requestNum, 0);
 	} else {
@@ -46,7 +54,7 @@ void queue_transaction(char *args[], int size) {
 }
 
 // Queue a Balance Check
-void queue_check(char *args[], int size) {
+void queue_check(char *args, int size) {
 	// printf("%s\n", args[1]);
 	if (size == 2) {
 		request(args, size, requestNum, 1);
@@ -71,10 +79,10 @@ void readCommand(char *args[], int size){
 	if (strcmp(command, "END") == 0) 
 		end();
 	else if (strcmp(command, "CHECK") == 0) {
-		queue_check(args, size);
+		queue_check(*args, size);
 	}
 	else if (strcmp(command, "TRANS") == 0) {
-		queue_transaction(args, size);
+		queue_transaction(*args, size);
 	}
 	// Cannot read command
 	else printf("Do not recognize command.\n");
@@ -157,6 +165,12 @@ int main(int argc, char **argv) {
 		requestNum++;
 	}
 	return 0;
+
+		// parseArguments(trimwhitespace("CHECK 1\n"));
+		// printf("ID %d\n", requestNum);
+		// requestNum++;
+
+		// return 0;
 }
 
 

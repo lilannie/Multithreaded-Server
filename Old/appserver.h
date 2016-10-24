@@ -17,7 +17,11 @@ typedef int bool;
 #include <limits.h>
 #include <pthread.h>
 
+#include "server.h"
+#include "client.h"
+
 // Global Variables
 int requestNum = 1;
 
 #endif
+

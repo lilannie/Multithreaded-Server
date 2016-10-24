@@ -1,4 +1,5 @@
 #include "linked_list.h"
+#include "worker.h"
 
 // Inits a new linked list
 // Returns the new linked list
@@ -6,7 +7,7 @@ linked_list_t* init_list() {
   linked_list_t* list = malloc(sizeof(linked_list_t));
   list->size = 0;
   list->head = NULL;
-  list->tail = NULL;
+  list->tail = NULL; // {0: requests, 1: workers}
   return list;
 }
 
@@ -20,13 +21,11 @@ int list_size(linked_list_t* list) {
 // Returns the data at the node with the given index
 void* get_node_data(linked_list_t* list, int index) {
   int i;
-
   node_t* current_node = list->head;
 
   for (i = 0; i < index; i++) {
     current_node = current_node->next;
   }
-
   return current_node->data;
 }
 
@@ -52,13 +51,14 @@ node_t* insert_node(linked_list_t* list, void* data) {
 // Removes the last node from the list
 // Returns the removed node for use in free later
 node_t* remove_node(linked_list_t* list) {
+  // printf("List size: %d\n", list->size);
   if (list->size == 0) {
     return NULL;
   }
 
   node_t* node = list->head;
 
-  int i;
+  // printf("List head request id: %d", ((request_t *)(node->data))->id);
   if (list->size == 1) {
     list->head = NULL;
     list->tail = NULL;
@@ -67,10 +67,11 @@ node_t* remove_node(linked_list_t* list) {
   }
 
   node_t* next = list->head->next;
-  free(list->head);
   list->head = next;
-  
+  list->head->next = next->next;
   list->size--;
+
+  // printf("Removed\n");
   return node;
 }
 
